@@ -197,7 +197,7 @@ FileSystem::Create(char *name, int initialSize)
         else if (!directory->Add(name, sector))
             success = FALSE;	// no space in directory
         	else {
-            	    hdr = new FileHeader;
+            	hdr = new FileHeader;
         	    if (!hdr->Allocate(freeMap, initialSize))
                     	success = FALSE;	// no space on disk for data
         	    else

@@ -38,32 +38,70 @@
 //	"fileSize" is the file length
 //----------------------------------------------------------------------
 
+void
+FileHeader::Init()
+{
+  for (int i = 0; i < NumDirect+2; i++) {
+    dataIndSectors[i] = -1;
+  }
+  for (int i = 0; i < NumDirect+2; i++) {
+    for (int j = 0; j < NumDirect+2; j++) {
+      dataDobSectors[i][j] = -1;
+    }
+  }
+  for (int i = 0; i < NumDirect+2; i++) {
+    dataDobIndex[i] = -1;
+  }
+}
+
 bool
 FileHeader::Allocate(BitMap *freeMap, int fileSize)
 {
     numBytes = fileSize;
     numSectors  = divRoundUp(fileSize, SectorSize);
-    printf("%d < %d \n", freeMap->NumClear(),numSectors);
-
     if (freeMap->NumClear() < numSectors)
 	     return FALSE;		// not enough space
 
-   if(numSectors <= NUMAXDIR)
+   Init();
+
+   if(numSectors <= NumDirect)
    {   //Directos
+       printf("Creando Apt Directos\n" );
        for (int i = 0; i < numSectors; i++)
          dataSectors[i] = freeMap->Find();
    }
-   else if(numSectors > NUMAXDIR && numSectors <= NUMAXINDS)
-     {    //Indirecto Sencillos
-          int numIndirect = numSectors - NumDirect;
-          for (int i = 0; i < numSectors-1; i++)
+   else if(numSectors > NumDirect && numSectors <= NUM_IND)
+     {    //Indirecto Sencillos restantes de los Directos.
+          printf("Creando Apt Indirectos\n" );
+          int numIndirect = numSectors - NumDirect-1;
+          for (int i = 0; i < NumDirect; i++) {
             dataSectors[i] = freeMap->Find();
+          }
+          for (int i = 0; i < numIndirect; i++) {
+            dataIndSectors[i] = freeMap->Find();
+          }
      }
-     else
-     {  //Indirectos Dobles
-        int numDouble = numSectors - NumDirect;
-        for (int i = 0; i < numSectors-2; i++)
-          dataSectors[i] = freeMap->Find();
+     else {
+      printf("Creando Apt Dobles\n" );
+      int numDouble = numSectors - (NUM_IND+1);
+
+      for (int i = 0; i < NumDirect; i++) {
+        dataSectors[i] = freeMap->Find();
+      }
+      for (int i = 0; i < NumDirect+2; i++) {
+        dataIndSectors[i] = freeMap->Find();
+      }
+
+      int nLoops = divRoundUp(numDouble,(NumDirect+2));
+      for (int i = 0; i < nLoops; i++) {
+        dataDobIndex[i] = freeMap->Find();
+      }
+
+      for (int i = 0; i < numDouble; i++) {
+        int colum = i%(NumDirect+2);
+        int row = i/(NumDirect+2);
+        dataDobSectors[row][colum] = freeMap->Find();
+      }
      }
 
     return TRUE;
@@ -79,9 +117,62 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize)
 void
 FileHeader::Deallocate(BitMap *freeMap)
 {
-    for (int i = 0; i < numSectors; i++) {
-	ASSERT(freeMap->Test((int) dataSectors[i]));  // ought to be marked!
-	freeMap->Clear((int) dataSectors[i]);
+  Init();
+  
+  if(numSectors <= NumDirect)
+  {   //Directos
+      printf("Eliminacion de Directos\n");
+      for (int i = 0; i < numSectors; i++) {
+        ASSERT(freeMap->Test((int) dataSectors[i]));  // ought to be marked!
+        freeMap->Clear((int) dataSectors[i]);
+      }
+  }
+  else if(numSectors > NumDirect && numSectors <= NUM_IND)
+    {    //Indirecto Sencillos restantes de los Directos.
+      printf("Eliminacion de Indirectos\n");
+      for (int i = 0; i < NumDirect+2; i++) {
+        if(dataIndSectors[i] != -1)
+        {
+          ASSERT(freeMap->Test((int) dataIndSectors[i]));  // ought to be marked!
+          freeMap->Clear((int) dataIndSectors[i]);
+        }
+
+      }
+      for (int i = 0; i < NumDirect; i++) {
+        ASSERT(freeMap->Test((int) dataSectors[i]));  // ought to be marked!
+        freeMap->Clear((int) dataSectors[i]);
+      }
+    }
+    else {
+        printf("Eliminacion de Dobles\n");
+        for (int i = 0; i < NumDirect+2; i++) {
+          for (int j = 0; j < NumDirect+2; j++) {
+            if(dataDobSectors[i][j] != -1)
+            {
+              printf("dtDobSector: %d \n", dataDobSectors[i][j]);
+              ASSERT(freeMap->Test((int) dataDobSectors[i][j]));
+              freeMap->Clear((int) dataDobSectors[i][j]);
+            }
+          }
+        }
+
+        for (int i = 0; i < NumDirect+2; i++) {
+          if(dataIndSectors[i] != -1)
+          {
+            ASSERT(freeMap->Test((int) dataIndSectors[i]));
+            freeMap->Clear((int) dataIndSectors[i]);
+          }
+          if(dataDobIndex[i] != -1)
+          {
+            ASSERT(freeMap->Test((int) dataDobIndex[i]));
+            freeMap->Clear((int) dataDobIndex[i]);
+          }
+        }
+
+        for (int i = 0; i < NumDirect; i++) {
+          ASSERT(freeMap->Test((int) dataSectors[i]));
+          freeMap->Clear((int) dataSectors[i]);
+        }
     }
 }
 
@@ -96,6 +187,25 @@ void
 FileHeader::FetchFrom(int sector)
 {
     synchDisk->ReadSector(sector, (char *)this);
+    if(numSectors > NumDirect && numSectors <= NUM_IND)
+    {    //Indirecto Sencillos restantes de los Directos.
+        synchDisk->ReadSector(dataSectors[NumDirect-1], (char *)dataIndSectors);
+    }
+    else
+    {   //dobles
+        synchDisk->ReadSector(dataSectors[NumDirect-1], (char *)dataIndSectors);
+        synchDisk->ReadSector(dataSectors[NumDirect-2], (char *)dataDobIndex);
+        for (int i = 0; i < NumDirect +2; i++) {
+          if(dataDobIndex[i] != -1)
+          {
+              synchDisk->ReadSector(dataDobIndex[i], (char *)dataDobSectors[i]);
+              /*for (int j = 0; j < NumDirect +2; j++) {
+                printf("dtDobSector: %d \n", dataDobSectors[i][j]);
+              }*/
+          }
+        }
+
+    }
 }
 
 //----------------------------------------------------------------------
@@ -107,8 +217,30 @@ FileHeader::FetchFrom(int sector)
 
 void
 FileHeader::WriteBack(int sector)
-{
+{   //directos
     synchDisk->WriteSector(sector, (char *)this);
+
+    if(dataIndSectors[0] != -1)
+    { //indirectos
+      synchDisk->WriteSector(dataSectors[NumDirect-1], (char *)dataIndSectors);
+      if(dataDobSectors[0][0] != -1)
+      { //doublePointers
+
+        /*int *doublePointers[NumDirect + 2];
+        for (int i = 0; i < NumDirect+2; i++) {
+          doublePointers[i] = dataDobSectors[i];
+        }*/
+
+        synchDisk->WriteSector(dataSectors[NumDirect-2], (char *)dataDobIndex);
+
+        for (int i = 0; i < NumDirect+2; i++) {
+          if(dataDobSectors[i][0] != -1)
+          {
+            synchDisk->WriteSector(dataDobIndex[i], (char *)dataDobSectors[i]);
+          }
+        }
+      }
+    }
 }
 
 //----------------------------------------------------------------------
