@@ -73,7 +73,7 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize)
    else if(numSectors > NumDirect && numSectors <= NUM_IND)
      {    //Indirecto Sencillos restantes de los Directos.
           printf("Creando Apt Indirectos\n" );
-          int numIndirect = numSectors - NumDirect-1;
+          int numIndirect = numSectors - NumDirect+1;
           for (int i = 0; i < NumDirect; i++) {
             dataSectors[i] = freeMap->Find();
           }
@@ -83,7 +83,7 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize)
      }
      else {
       printf("Creando Apt Dobles\n" );
-      int numDouble = numSectors - (NUM_IND+1);
+      int numDouble = numSectors - (NUM_IND-1);
 
       for (int i = 0; i < NumDirect; i++) {
         dataSectors[i] = freeMap->Find();
@@ -91,7 +91,6 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize)
       for (int i = 0; i < NumDirect+2; i++) {
         dataIndSectors[i] = freeMap->Find();
       }
-
       int nLoops = divRoundUp(numDouble,(NumDirect+2));
       for (int i = 0; i < nLoops; i++) {
         dataDobIndex[i] = freeMap->Find();
@@ -117,8 +116,6 @@ FileHeader::Allocate(BitMap *freeMap, int fileSize)
 void
 FileHeader::Deallocate(BitMap *freeMap)
 {
-  Init();
-  
   if(numSectors <= NumDirect)
   {   //Directos
       printf("Eliminacion de Directos\n");
@@ -133,6 +130,7 @@ FileHeader::Deallocate(BitMap *freeMap)
       for (int i = 0; i < NumDirect+2; i++) {
         if(dataIndSectors[i] != -1)
         {
+          printf("dtIndSector: %d \n", dataIndSectors[i]);
           ASSERT(freeMap->Test((int) dataIndSectors[i]));  // ought to be marked!
           freeMap->Clear((int) dataIndSectors[i]);
         }
@@ -186,6 +184,8 @@ FileHeader::Deallocate(BitMap *freeMap)
 void
 FileHeader::FetchFrom(int sector)
 {
+    Init();
+
     synchDisk->ReadSector(sector, (char *)this);
     if(numSectors > NumDirect && numSectors <= NUM_IND)
     {    //Indirecto Sencillos restantes de los Directos.
